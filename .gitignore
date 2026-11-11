@@ -1,0 +1,17 @@
+# build outputs (the prebuilt dist/Stumped/stumped for the Miyoo is kept)
+/stumped
+/fewest
+/build/
+__pycache__/
+*.pyc
+.DS_Store
+
+# saves and logs from running it here
+save.txt
+save.txt.bak
+save.txt.tmp
+log.txt
+
+# solutions saved from other people's lists (tools/check_online.py): kept locally, not shared
+data/online/
+data/online-best.txt

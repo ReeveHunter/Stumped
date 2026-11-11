@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Stumped</title>
+<meta name="description" content="A Game Boy–style Sokoban in a forest at night, with 1,093 puzzles by David W. Skinner.">
+<meta name="theme-color" content="#0C1028">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stumped">
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  /* the four shades follow the in-game palette (Night until the game says otherwise) */
+  :root { --c0: #9AA8D8; --c1: #5C6CA8; --c2: #2E3868; --c3: #0C1028; --pad: 168px; }
+  * { box-sizing: border-box; }
+  * { touch-action: manipulation; }
+  html, body { margin: 0; height: 100%; background: var(--c3); color: var(--c0); }
+  body {
+    font-family: "Press Start 2P", ui-monospace, monospace; font-size: 10px; line-height: 1.8;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation; overflow: hidden;
+  }
+  a { color: var(--c0); }
+  #app {
+    min-height: 100%; height: 100dvh; display: grid; justify-content: center; align-content: center;
+    gap: 16px; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    grid-template-areas: "head" "screen" "help";
+  }
+  header { grid-area: head; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: normal; letter-spacing: 1px; }
+  header span { color: var(--c1); }
+  #screen-wrap { grid-area: screen; position: relative; justify-self: center; line-height: 0; }
+  #screen {
+    display: block; width: 640px; height: 480px; image-rendering: pixelated; image-rendering: crisp-edges;
+    background: var(--c3); outline: 4px solid var(--c2);
+  }
+  #start {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; background: color-mix(in srgb, var(--c3) 78%, transparent); cursor: pointer; line-height: 1.8;
+    text-align: center; padding: 16px;
+  }
+  #start b { font-size: 24px; font-weight: normal; }
+  #start .go { background: var(--c0); color: var(--c3); padding: 8px 16px; animation: blink 1.2s steps(2) infinite; }
+  #start.hidden { display: none; }
+  @keyframes blink { 50% { opacity: .55; } }
+  #help { grid-area: help; color: var(--c1); max-width: 640px; justify-self: center; }
+  #help kbd { color: var(--c0); font-family: inherit; }
+  #help p { margin: 0 0 8px; }
+  .pad { display: none; }
+
+  /* ---------- touch controls: pixel art drawn in the palette (see drawControls) ---------- */
+  .touch #help { display: none; }
+  .touch header { display: none; }
+  .touch .pad { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--art) * 6px); }
+  .touch #app { grid-template-areas: "screen screen" "left right"; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; align-content: stretch; }
+  .touch #pad-left { grid-area: left; } .touch #pad-right { grid-area: right; }
+  @media (orientation: landscape) {
+    .touch #app { grid-template-areas: "left screen right"; grid-template-columns: var(--pad) auto var(--pad); grid-template-rows: auto; align-content: center; }
+  }
+  :root { --art: 3; }
+  .row { display: flex; gap: calc(var(--art) * 4px); }
+  button[data-b], #dpad {
+    display: block; position: relative; background: none; border: 0; padding: 0; margin: 0; line-height: 0;
+    touch-action: none; -webkit-user-select: none; user-select: none; cursor: pointer;
+  }
+  canvas.art { display: block; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none; }
+  #abxy { position: relative; }
+  #abxy button { position: absolute; }
+  #touch-toggle { color: var(--c1); }
+  /* gestures: no buttons, the screen as big as it goes; you play by tapping and swiping on it */
+  .gest #help, .gest header, .gest .pad { display: none; }
+  .gest #app { grid-template-areas: "screen"; align-content: center; }
+  .gest #screen { touch-action: none; }
+  html:has(body.gest), body.gest { touch-action: none; overscroll-behavior: none; }
+  body.gest { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* the controls switch, bottom right, while on-screen controls of either kind are in use */
+  #ctl-switch { display: none; }
+  .touch #ctl-switch, .gest #ctl-switch {
+    display: flex; gap: 4px; position: fixed; right: max(8px, env(safe-area-inset-right)); bottom: max(4px, env(safe-area-inset-bottom));
+    font-size: 9px; color: var(--c2);
+  }
+  #ctl-switch a { color: var(--c1); text-decoration: none; padding: 8px 6px; }
+  #ctl-switch a.cur { color: var(--c0); text-decoration: underline; }
+  noscript, .err { display: block; padding: 16px; color: var(--c0); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>STUMPED</h1><span>__VERSION__</span></header>
+
+  <div id="screen-wrap">
+    <canvas id="screen" width="640" height="480" aria-label="Stumped game screen"></canvas>
+    <div id="start"><b>STUMPED</b><span class="go" id="go">Loading…</span><span id="start-hint"></span></div>
+  </div>
+
+  <div class="pad" id="pad-left">
+    <div class="row"><button data-b="L2" aria-label="L2"></button><button data-b="L1" aria-label="L1"></button></div>
+    <div id="dpad" aria-label="D-pad"></div>
+    <button data-b="SELECT" aria-label="Select"></button>
+  </div>
+
+  <div class="pad" id="pad-right">
+    <div class="row"><button data-b="R1" aria-label="R1"></button><button data-b="R2" aria-label="R2"></button></div>
+    <div id="abxy">
+      <button data-b="X" aria-label="X"></button><button data-b="Y" aria-label="Y"></button>
+      <button data-b="A" aria-label="A"></button><button data-b="B" aria-label="B"></button>
+    </div>
+    <button data-b="START" aria-label="Start"></button>
+  </div>
+
+  <div id="help">
+    <p><kbd>Arrows</kbd>/<kbd>WASD</kbd> move &nbsp; <kbd>Enter</kbd> choose &nbsp; <kbd>Esc</kbd> back, pause &nbsp; <kbd>Z</kbd> undo &nbsp; <kbd>X</kbd>/<kbd>Y</kbd> redo</p>
+    <p>hold <kbd>R</kbd> restart &nbsp; hold <kbd>M</kbd> map &nbsp; <kbd>-</kbd>/<kbd>=</kbd> zoom &nbsp; <kbd>[</kbd>/<kbd>]</kbd> level &nbsp; <kbd>L</kbd> level list &nbsp; click a square to walk there</p>
+    <p>In the lists: <kbd>M</kbd> menu (progress codes, clearing) &nbsp; <kbd>[</kbd>/<kbd>]</kbd> or <kbd>Page Up</kbd>/<kbd>Down</kbd> page &nbsp; <kbd>N</kbd> next unsolved &nbsp; Level maker: <kbd>T</kbd> test play</p>
+    <p>Game controllers work too. Puzzles by David W. Skinner. Progress is saved in this browser. Also plays on the Miyoo Mini.
+       <a href="#" id="touch-toggle">Touch controls</a></p>
+  </div>
+</div>
+<div id="ctl-switch"><a href="#" data-m="g">Gestures</a><a href="#" data-m="1">Buttons</a><a href="#" data-m="0">Off</a></div>
+<noscript>Stumped needs JavaScript.</noscript>
+
+<script>
+(function () {
+  'use strict';
+  /* button indexes match WEB_BTN in src/main.c */
+  var BTN = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3, A: 4, B: 5, X: 6, Y: 7, L1: 8, R1: 9, L2: 10, R2: 11, SELECT: 12, START: 13, MENU: 14 };
+  /* keyboard: keys name actions; the game turns each into the right button for the screen
+     (indexes match KA_* in src/main.c) */
+  var KA = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3, OK: 4, ESC: 5, BACK: 6, UNDO: 7, REDO: 8, RESTART: 9, MAP: 10,
+             ZOOM_OUT: 11, ZOOM_IN: 12, PREV: 13, NEXT: 14, PAUSE: 15, LEVELS: 16, CLEAR: 17,
+             D0: 18, D1: 19, D2: 20, D3: 21, D4: 22, D5: 23, D6: 24, D7: 25, D8: 26, D9: 27, RIM: 28, NEW: 29,
+             KX: 30, KC: 31, KV: 32, PGUP: 33, PGDN: 34, TEST: 35, NEXTU: 36 };
+  var KEYS = {
+    ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', KeyW: 'UP', KeyS: 'DOWN', KeyA: 'LEFT', KeyD: 'RIGHT',
+    Enter: 'OK', NumpadEnter: 'OK', Space: 'OK', Escape: 'ESC', Backspace: 'BACK',
+    KeyZ: 'UNDO', KeyU: 'UNDO', KeyY: 'REDO', KeyR: 'RESTART', KeyM: 'MAP', Tab: 'MAP',
+    Minus: 'ZOOM_OUT', NumpadSubtract: 'ZOOM_OUT', Equal: 'ZOOM_IN', NumpadAdd: 'ZOOM_IN',
+    BracketLeft: 'PREV', BracketRight: 'NEXT', KeyP: 'PAUSE', KeyL: 'LEVELS', Delete: 'CLEAR',
+    PageUp: 'PGUP', PageDown: 'PGDN', KeyT: 'TEST', KeyN: 'NEXTU',
+    /* X also redoes; Listen plays along on the number keys (top row or ten-key), and Z X C V are its A B X Y */
+    KeyX: 'KX', KeyC: 'KC', KeyV: 'KV'
+  };
+  for (var d = 0; d <= 9; d++) { KEYS['Digit' + d] = 'D' + d; KEYS['Numpad' + d] = 'D' + d; }
+  /* prompts in the game follow the last thing used: keyboard, or buttons (touch / controller) */
+  var kbdMode = -1;
+  function setMode(kbd) {
+    if (kbd === kbdMode) return;
+    kbdMode = kbd;
+    if (ready) Module._web_input_mode(kbd);
+  }
+  var SAVE_KEY = 'stumped-save', SETS_KEY = 'stumped-sets';
+  function openHashCode() {
+    var c = '';
+    try { c = decodeURIComponent((location.hash || '').slice(1)); } catch (e) {}
+    if (!ready || !/^[0-9A-Za-z -]{5,400}$/.test(c)) return;
+    Module._web_code_link(1);
+    for (var i = 0; i < c.length; i++) Module._web_code_char(c.charCodeAt(i));
+    Module._web_code_char(13);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }
+  /* level set files you add: kept in the browser as { "name.txt": text } */
+  function loadSetStore() { try { return JSON.parse(localStorage.getItem(SETS_KEY) || '{}'); } catch (e) { return {}; } }
+  var saveIn = document.createElement('input');
+  saveIn.type = 'file'; saveIn.accept = '.txt,text/plain'; saveIn.style.display = 'none';
+  document.body.appendChild(saveIn);
+  saveIn.addEventListener('change', function () {
+    var f = saveIn.files && saveIn.files[0];
+    if (!f || !ready) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try { Module.FS.writeFile('import.txt', String(r.result)); } catch (e) { return; }
+      Module._web_save_import();
+    };
+    r.readAsText(f);
+  });
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.txt,.sok,.xsb,text/plain'; fileIn.style.display = 'none';
+  document.body.appendChild(fileIn);
+  fileIn.addEventListener('change', function () {
+    var f = fileIn.files && fileIn.files[0];
+    if (!f || !ready) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var text = String(rd.result || ''), name = f.name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9 _()'-]/g, '_').slice(0, 60) + '.txt', kept = 1;
+      try { var all = loadSetStore(); all[name] = text; localStorage.setItem(SETS_KEY, JSON.stringify(all)); } catch (e) { kept = -1; }
+      try { Module.FS.mkdir('imported'); } catch (e) {}
+      Module.FS.writeFile('imported/' + name, text);
+      Module._web_sets_reload(kept);
+    };
+    rd.readAsText(f);
+  });
+  var canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');
+  var image = ctx.createImageData(640, 480);
+  var start = document.getElementById('start'), go = document.getElementById('go');
+  var ready = false, started = false;
+
+  /* ---------- buttons: keyboard and touch can hold the same button; count holders ---------- */
+  var holders = {};
+  function press(name, down) {
+    var b = BTN[name]; if (b === undefined) return;
+    var n = holders[name] || 0;
+    holders[name] = n = Math.max(0, n + (down ? 1 : -1));
+    if ((down && n === 1) || (!down && n === 0)) {
+      if (ready) Module._web_key(b, down ? 1 : 0);
+      drawControl(name);              /* keys light up the on-screen buttons too */
+    }
+  }
+  function releaseAll() {
+    dpadSet(null);
+    for (var k in holders) if (holders[k] > 0) { holders[k] = 1; press(k, false); }
+  }
+
+  /* ---------- start overlay: the first click/tap/key unlocks audio ---------- */
+  function begin() {
+    if (!ready || started) return false;
+    started = true;
+    start.classList.add('hidden');
+    startAudio();
+    return true;
+  }
+  start.addEventListener('pointerdown', function (e) { e.preventDefault(); begin(); });
+
+  var keyHeld = {};                  /* key code -> the action it pressed */
+  window.addEventListener('keydown', function (e) {
+    /* typing a level code: letters and digits go straight in */
+    if (ready && started && !e.metaKey && !e.ctrlKey && !e.altKey && Module._web_text_mode()) {
+      var ch = e.key.length === 1 && /[0-9A-Za-z]/.test(e.key) ? e.key.charCodeAt(0)
+             : e.key === 'Backspace' ? 8 : e.key === 'Enter' ? 13 : e.key === 'Escape' ? 27 : 0;
+      if (ch) { e.preventDefault(); setMode(1); Module._web_code_char(ch); return; }
+      if (e.key === ' ' || e.key === '-') { e.preventDefault(); return; }   /* the gaps are put in for you */
+    }
+    var act = KEYS[e.code];
+    if (!act || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (act === 'UNDO' && e.shiftKey && e.code === 'KeyZ') act = 'REDO';      /* Shift+Z redoes */
+    e.preventDefault();
+    setMode(1);
+    if (begin()) return;             /* the key that starts the game doesn't also press a button */
+    if (e.repeat || keyHeld[e.code]) return;   /* the game does its own hold-to-repeat */
+    keyHeld[e.code] = act;
+    if (ready) Module._web_kbd(KA[act], 1);
+  });
+  window.addEventListener('paste', function (e) {
+    if (!ready || !Module._web_text_mode()) return;
+    var t = (e.clipboardData || window.clipboardData).getData('text') || '';
+    e.preventDefault();
+    for (var i = 0; i < t.length; i++) Module._web_code_char(t.charCodeAt(i));
+  });
+  window.addEventListener('keyup', function (e) {
+    var act = keyHeld[e.code];
+    if (!act) return;
+    e.preventDefault();
+    delete keyHeld[e.code];
+    if (ready) Module._web_kbd(KA[act], 0);
+  });
+  function releaseKeys() {
+    for (var c in keyHeld) { if (ready) Module._web_kbd(KA[keyHeld[c]], 0); }
+    keyHeld = {};
+  }
+  window.addEventListener('blur', function () { releaseKeys(); releaseAll(); });
+
+  /* ---------- game controllers (standard layout, by position like the Miyoo: A right, B bottom) ---------- */
+  var PAD_MAP = { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 8: 'SELECT', 9: 'START',
+                  12: 'UP', 13: 'DOWN', 14: 'LEFT', 15: 'RIGHT' };
+  var padHeld = {};
+  function padRelease(i) { var h = padHeld[i] || {}; for (var n in h) if (h[n] === 2) press(n, false); delete padHeld[i]; }
+  function pollPads() {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [], fresh = false, live = started;
+    for (var p = 0; p < pads.length; p++) {
+      var pad = pads[p]; if (!pad || !pad.connected) continue;
+      var now = {}, i;
+      for (i in PAD_MAP) { var bt = pad.buttons[i]; if (bt && (bt.pressed || bt.value > 0.5)) now[PAD_MAP[i]] = 1; }
+      var ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;               /* the left stick works as a D-pad */
+      if (Math.hypot(ax, ay) > 0.55) now[Math.abs(ax) > Math.abs(ay) ? (ax < 0 ? 'LEFT' : 'RIGHT') : (ay < 0 ? 'UP' : 'DOWN')] = 1;
+      var prev = padHeld[pad.index] || {};
+      for (var n in prev) if (!now[n] && prev[n] === 2) press(n, false);
+      for (n in now) {
+        if (!prev[n]) { fresh = true; now[n] = live ? 2 : 1; if (live) press(n, true); }   /* the press that starts the game is swallowed */
+        else now[n] = prev[n];
+      }
+      padHeld[pad.index] = now;
+    }
+    if (fresh) { setMode(0); padStart(); }
+    requestAnimationFrame(pollPads);
+  }
+  window.addEventListener('gamepaddisconnected', function (e) { padRelease(e.gamepad.index); });
+  requestAnimationFrame(pollPads);
+  /* browsers may not count a controller button as permission to play sound; if so, ask for a click */
+  var padTried = false;
+  function padStart() {
+    if (!ready || started || padTried) return;
+    padTried = true;
+    begin();
+    setTimeout(function () {
+      if (actx && actx.state === 'running') return;
+      started = false; start.classList.remove('hidden');
+      go.textContent = 'Click for sound';
+      document.getElementById('start-hint').textContent = 'or press a key';
+    }, 300);
+  }
+
+  /* ---------- no double-tap zoom (pinch still zooms) ---------- */
+  var lastTouchEnd = 0;
+  document.addEventListener('touchend', function (e) {
+    var t = Date.now();
+    if (t - lastTouchEnd < 400) e.preventDefault();
+    lastTouchEnd = t;
+  }, { passive: false });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
+
+  /* ---------- touch controls, drawn as pixel art in the game's four shades ----------
+     Each control is a tiny canvas (sizes in art pixels) blown up with crisp square pixels.
+     Buttons the current screen doesn't use are drawn as dim outlines (the game tells us which). */
+  var pal = ['#9AA8D8', '#5C6CA8', '#2E3868', '#0C1028'];
+  var enabled = 0x3FFF, ART = 3;
+  var buzz = function () { if (navigator.vibrate) try { navigator.vibrate(8); } catch (e) {} };
+  /* the game's 8×8 font (font8x8, bit 0 = left) for the big labels, and a 3×5 one for the small ones */
+  var F8 = { A: [12, 30, 51, 51, 63, 51, 51], B: [63, 102, 102, 62, 102, 102, 63], X: [99, 99, 54, 28, 28, 54, 99],
+             Y: [51, 51, 51, 30, 12, 12, 30], L: [15, 6, 6, 6, 70, 102, 127], R: [63, 102, 102, 62, 54, 102, 103],
+             1: [12, 14, 12, 12, 12, 12, 63], 2: [30, 51, 48, 28, 6, 51, 63] };
+  var F3 = { S: ['111', '100', '111', '001', '111'], E: ['111', '100', '110', '100', '111'], L: ['100', '100', '100', '100', '111'],
+             C: ['111', '100', '100', '100', '111'], T: ['111', '010', '010', '010', '010'], A: ['010', '101', '111', '101', '101'],
+             R: ['110', '101', '110', '101', '101'] };
+  function glyph8(ch) {                     /* -> {w, px(x,y)} trimmed to its ink */
+    var rows = F8[ch], lo = 8, hi = -1;
+    rows.forEach(function (r) { for (var b = 0; b < 8; b++) if (r >> b & 1) { lo = Math.min(lo, b); hi = Math.max(hi, b); } });
+    return { w: hi - lo + 1, h: 7, on: function (x, y) { return rows[y] >> (x + lo) & 1; } };
+  }
+  function label8(text) {                   /* glyphs side by side, 1 px apart */
+    var gs = text.split('').map(glyph8), w = gs.reduce(function (a, g) { return a + g.w; }, 0) + gs.length - 1;
+    return { w: w, h: 7, on: function (x, y) {
+      for (var i = 0; i < gs.length; i++) { if (x < gs[i].w) return gs[i].on(x, y); x -= gs[i].w + 1; if (x < 0) return 0; }
+      return 0; } };
+  }
+  function label3(text) {
+    return { w: text.length * 4 - 1, h: 5, on: function (x, y) {
+      var i = Math.floor(x / 4), cx = x % 4; return cx < 3 && F3[text[i]][y][cx] === '1'; } };
+  }
+  /* shapes: a 20 px circle, rounded boxes (cut corners) */
+  function circle(d) { return function (x, y) { var r = d / 2; return (x + .5 - r) * (x + .5 - r) + (y + .5 - r) * (y + .5 - r) <= r * r; }; }
+  function rounded(w, h, r) { return function (x, y) { return x >= 0 && y >= 0 && x < w && y < h && Math.min(x, w - 1 - x) + Math.min(y, h - 1 - y) >= r; }; }
+
+  var KINDS = {   /* body w×h (+2 rows of shadow), shape, label */
+    A: { w: 20, h: 20, shape: circle(20), label: label8('A') }, B: { w: 20, h: 20, shape: circle(20), label: label8('B') },
+    X: { w: 20, h: 20, shape: circle(20), label: label8('X') }, Y: { w: 20, h: 20, shape: circle(20), label: label8('Y') },
+    L1: { w: 24, h: 12, shape: rounded(24, 12, 2), label: label8('L1') }, L2: { w: 24, h: 12, shape: rounded(24, 12, 2), label: label8('L2') },
+    R1: { w: 24, h: 12, shape: rounded(24, 12, 2), label: label8('R1') }, R2: { w: 24, h: 12, shape: rounded(24, 12, 2), label: label8('R2') },
+    SELECT: { w: 29, h: 9, shape: rounded(29, 9, 3), label: label3('SELECT') },
+    START: { w: 29, h: 9, shape: rounded(29, 9, 3), label: label3('START') }
+  };
+  var ABXY_AT = { X: [18, 0], Y: [0, 17], A: [36, 17], B: [18, 34] };   /* a diamond, 56×56 */
+  var controls = {};
+  document.querySelectorAll('button[data-b]').forEach(function (el) {
+    var name = el.getAttribute('data-b'), k = KINDS[name], c = document.createElement('canvas');
+    c.className = 'art'; c.width = k.w; c.height = k.h + 2; el.appendChild(c);
+    controls[name] = { el: el, cv: c, k: k };
+  });
+  function isOn(name) { return enabled >> BTN[name] & 1; }
+  function held(name) { return (holders[name] || 0) > 0; }
+
+  function drawControl(name) {
+    if (name in ARROWS) { drawDpad(); return; }
+    var ct = controls[name]; if (!ct) return;
+    var k = ct.k, g = ct.cv.getContext('2d'), on = isOn(name), down = held(name);
+    g.clearRect(0, 0, k.w, k.h + 2);
+    var dy = on && !down ? 0 : 2, x, y;
+    function dot(x, y, c) { g.fillStyle = c; g.fillRect(x, y, 1, 1); }
+    for (y = 0; y < k.h; y++) for (x = 0; x < k.w; x++) {
+      if (!k.shape(x, y)) continue;
+      if (!on) {                                   /* a dim outline */
+        if (!k.shape(x - 1, y) || !k.shape(x + 1, y) || !k.shape(x, y - 1) || !k.shape(x, y + 1)) dot(x, y + dy, pal[2]);
+        continue;
+      }
+      if (!down) dot(x, y + 2, pal[2]);            /* shadow under a raised button */
+    }
+    if (on) for (y = 0; y < k.h; y++) for (x = 0; x < k.w; x++) if (k.shape(x, y)) {
+      var c = down ? pal[0] : pal[1];
+      if (!down && y < k.h / 2 && !k.shape(x, y - 2)) c = pal[0];   /* a light rim along the top */
+      dot(x, y + dy, c);
+    }
+    var L = k.label, lx = Math.floor((k.w - L.w) / 2), ly = Math.floor((k.h - L.h) / 2);
+    for (y = 0; y < L.h; y++) for (x = 0; x < L.w; x++) if (L.on(x, y)) dot(lx + x, ly + y + dy, on ? pal[3] : pal[2]);
+  }
+
+  /* the D-pad is one surface: the direction follows the finger, so you can roll between arrows */
+  var dpad = document.getElementById('dpad'), dpadDir = null, dpadPointer = null;
+  var ARROWS = { UP: 1, DOWN: 1, LEFT: 1, RIGHT: 1 };
+  var dcv = document.createElement('canvas'); dcv.className = 'art'; dcv.width = 48; dcv.height = 50; dpad.appendChild(dcv);
+  function dpadRegion(x, y) {
+    var inH = y >= 16 && y < 32, inV = x >= 16 && x < 32;
+    if (!inH && !inV) return null;
+    if ((x < 2 || x > 45) && (y < 17 || y > 30)) return null;   /* rounded arm ends */
+    if ((y < 2 || y > 45) && (x < 17 || x > 30)) return null;
+    return y < 16 ? 'UP' : y >= 32 ? 'DOWN' : x < 16 ? 'LEFT' : x >= 32 ? 'RIGHT' : 'C';
+  }
+  function arrowPx(dir, x, y) {             /* a small solid triangle near each tip */
+    var a, b;
+    if (dir === 'UP') { a = y - 4; b = x - 23.5; } else if (dir === 'DOWN') { a = 43 - y; b = x - 23.5; }
+    else if (dir === 'LEFT') { a = x - 4; b = y - 23.5; } else { a = 43 - x; b = y - 23.5; }
+    return a >= 0 && a < 5 && Math.abs(b) < a + 1;
+  }
+  function drawDpad() {
+    var g = dcv.getContext('2d'), x, y, any = enabled & 15;
+    g.clearRect(0, 0, 48, 50);
+    function st(r) {                           /* 'up' raised, 'down' pressed, 'off' dim */
+      if (r === 'C') return any ? 'up' : 'off';
+      return !isOn(r) ? 'off' : held(r) ? 'down' : 'up';
+    }
+    for (y = 0; y < 48; y++) for (x = 0; x < 48; x++) {
+      var r = dpadRegion(x, y); if (!r) continue;
+      var s = st(r);
+      g.fillStyle = pal[2]; g.fillRect(x, y + 2, 1, 1);        /* shadow / sunken base */
+      if (s === 'off') continue;
+      var c = s === 'down' ? pal[0] : pal[1];
+      if (s === 'up' && !dpadRegion(x, y - 2)) c = pal[0];     /* light rim */
+      g.fillStyle = c; g.fillRect(x, y + (s === 'down' ? 2 : 0), 1, 1);
+    }
+    for (var d in ARROWS) {
+      var s2 = st(d), dy = s2 === 'up' ? 0 : 2;
+      for (y = 0; y < 48; y++) for (x = 0; x < 48; x++) if (arrowPx(d, x, y)) {
+        g.fillStyle = s2 === 'off' ? pal[1] : pal[3]; g.fillRect(x, y + dy, 1, 1);
+      }
+    }
+    /* a dimple in the middle */
+    g.fillStyle = pal[2];
+    var cy = any ? 0 : 2;
+    g.fillRect(22, 21 + cy, 4, 6); g.fillRect(21, 22 + cy, 6, 4);
+  }
+  function drawControls() { for (var n in controls) drawControl(n); drawDpad(); }
+
+  /* sizes: ART css px per art pixel, snapped so each art pixel is a whole number of device pixels */
+  function sizeControls(target) {
+    var dpr = window.devicePixelRatio || 1;
+    ART = Math.max(1, Math.floor(target * dpr)) / dpr;
+    document.documentElement.style.setProperty('--art', ART);
+    for (var n in controls) {
+      var ct = controls[n];
+      ct.cv.style.width = ct.cv.width * ART + 'px'; ct.cv.style.height = ct.cv.height * ART + 'px';
+      if (ABXY_AT[n]) { ct.el.style.left = ABXY_AT[n][0] * ART + 'px'; ct.el.style.top = ABXY_AT[n][1] * ART + 'px'; }
+    }
+    var ab = document.getElementById('abxy');
+    ab.style.width = 56 * ART + 'px'; ab.style.height = 56 * ART + 'px';
+    dcv.style.width = 48 * ART + 'px'; dcv.style.height = 50 * ART + 'px';
+  }
+
+  Object.keys(controls).forEach(function (name) {
+    var el = controls[name].el, mine = false;
+    function up() { if (mine) { mine = false; press(name, false); } }
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); begin(); setMode(0);
+      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+      if (!mine) { mine = true; if (isOn(name)) buzz(); press(name, true); }
+    });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+
+  /* a direction is one button name, or two ('UP RIGHT') for Listen's in-between notes */
+  function dirParts(d) { return d ? d.split(' ') : []; }
+  function dpadSet(dir) {
+    if (dir === dpadDir) return;
+    var old = dirParts(dpadDir), nw = dirParts(dir), fresh = false;
+    dpadDir = dir;
+    old.forEach(function (o) { if (nw.indexOf(o) < 0) press(o, false); });
+    nw.forEach(function (n) { if (old.indexOf(n) < 0) { press(n, true); fresh = true; } });
+    if (fresh && isOn(nw[0])) buzz();
+  }
+  var DIR8 = ['RIGHT', 'UP RIGHT', 'UP', 'UP LEFT', 'LEFT', 'DOWN LEFT', 'DOWN', 'DOWN RIGHT'];
+  function dpadAt(e) {
+    var r = dcv.getBoundingClientRect();
+    var x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.width / 2);
+    if (Math.hypot(x, y) < r.width * 0.12) return dpadDir;   /* small dead zone in the middle */
+    if (ready && Module._web_dpad8()) return DIR8[(Math.round(Math.atan2(-y, x) / (Math.PI / 4)) + 8) % 8];
+    return Math.abs(x) > Math.abs(y) ? (x < 0 ? 'LEFT' : 'RIGHT') : (y < 0 ? 'UP' : 'DOWN');
+  }
+  dpad.addEventListener('pointerdown', function (e) {
+    e.preventDefault(); begin(); setMode(0);
+    dpadPointer = e.pointerId;
+    try { dpad.setPointerCapture(e.pointerId); } catch (err) {}
+    dpadSet(dpadAt(e) || 'UP');
+  });
+  dpad.addEventListener('pointermove', function (e) { if (e.pointerId === dpadPointer) dpadSet(dpadAt(e)); });
+  function dpadUp(e) { if (e.pointerId === dpadPointer) { dpadPointer = null; dpadSet(null); } }
+  dpad.addEventListener('pointerup', dpadUp);
+  dpad.addEventListener('pointercancel', dpadUp);
+  dpad.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  /* controls: 'g' gestures (tap and swipe on the game), '1' on-screen buttons, '0' none (keyboard / controller).
+     Phones and tablets start with gestures. */
+  var touchPref = null;
+  try { touchPref = localStorage.getItem('stumped-touch'); } catch (e) {}
+  var coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  var ctlMode = '0';
+  function setCtl(m) {
+    ctlMode = m;
+    document.body.classList.toggle('touch', m === '1');
+    document.body.classList.toggle('gest', m === 'g');
+    document.querySelectorAll('#ctl-switch a').forEach(function (a) { a.classList.toggle('cur', a.getAttribute('data-m') === m); });
+    if (m === 'g') setMode(2); else if (m === '1') setMode(0);
+    layout();
+  }
+  function chooseCtl(m) {
+    touchPref = m;
+    try { localStorage.setItem('stumped-touch', m); } catch (err) {}
+    setCtl(m);
+  }
+  window.addEventListener('touchstart', function () { if (touchPref === null && ctlMode === '0') setCtl('g'); }, { once: true, passive: true });
+  document.getElementById('touch-toggle').addEventListener('click', function (e) { e.preventDefault(); chooseCtl(ctlMode === '0' ? '1' : '0'); });
+  document.querySelectorAll('#ctl-switch a').forEach(function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); chooseCtl(a.getAttribute('data-m')); });
+  });
+
+  /* ---------- gestures, anywhere on the page ----------
+     tap: walk there (next to you: one step; menus: choose what you tap) · swipe: walk, and keep walking
+     while you hold · two-finger tap: undo · touch and hold: map · pinch: zoom. Menus don't swipe: the
+     game draws BACK, MENU and page buttons.
+     They work on the whole page, not just the game screen, so a thumb below or beside it still plays.
+     Links and the start overlay keep their own clicks; Listen's finger-play stays on the screen. */
+  function gestOn() { return ctlMode === 'g'; }
+  var pts = {}, gs = null, SWIPE = 18, raw = {};
+  function gameXY(cx, cy) {
+    var r = canvas.getBoundingClientRect();
+    return [Math.round((cx - r.left) * 640 / r.width), Math.round((cy - r.top) * 480 / r.height)];
+  }
+  function npts() { return Object.keys(pts).length; }
+  function pdist() { var k = Object.keys(pts); if (k.length < 2) return 0; var a = pts[k[0]], b = pts[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
+  function onScreen(e) { var r = canvas.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom; }
+  document.addEventListener('pointerdown', function (e) {
+    if (!gestOn() || !ready) return;
+    if (e.target.closest && e.target.closest('a, button, input, #start, #ctl-switch')) return;
+    e.preventDefault();
+    if (begin()) return;                         /* the tap that starts the game doesn't also play */
+    setMode(2);
+    try { document.documentElement.setPointerCapture(e.pointerId); } catch (err) {}
+    if (Module._web_listen_raw()) {               /* Listen: every finger plays, no gestures */
+      if (!onScreen(e)) return;
+      raw[e.pointerId] = true;
+      var q = gameXY(e.clientX, e.clientY); Module._web_ltouch(e.pointerId, q[0], q[1], 0);
+      return;
+    }
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (npts() === 1) {
+      gs = { kind: 1, id: e.pointerId, x0: e.clientX, y0: e.clientY, px: e.clientX, py: e.clientY, t0: Date.now(), moved: false, dir: -1, long: false };
+      var me = gs;
+      gs.timer = setTimeout(function () {
+        if (gs !== me || me.moved) return;
+        me.long = true; buzz();
+        var p = gameXY(me.x0, me.y0); Module._web_gesture(1, p[0], p[1], 1);
+      }, 450);
+    } else if (npts() === 2) {
+      if (gs && gs.kind === 1) {                   /* a second finger: whatever the first was doing stops */
+        clearTimeout(gs.timer);
+        if (gs.dir >= 0) Module._web_swipe(0, 0);
+        if (gs.long) Module._web_gesture(1, 0, 0, 0);
+      }
+      gs = { kind: 2, t0: Date.now(), d0: pdist(), moved: false, pinched: false };
+    }
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (raw[e.pointerId]) { var q = gameXY(e.clientX, e.clientY); Module._web_ltouch(e.pointerId, q[0], q[1], 1); return; }
+    if (!gestOn() || !pts[e.pointerId]) return;
+    pts[e.pointerId].x = e.clientX; pts[e.pointerId].y = e.clientY;
+    if (!gs) return;
+    if (gs.kind === 1 && e.pointerId === gs.id) {
+      var dx = e.clientX - gs.px, dy = e.clientY - gs.py;
+      if (!gs.moved && Math.hypot(e.clientX - gs.x0, e.clientY - gs.y0) > SWIPE) { gs.moved = true; clearTimeout(gs.timer); }
+      if (!gs.moved || gs.long) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE) return;
+      var dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : (dy < 0 ? 0 : 1);
+      gs.px = e.clientX; gs.py = e.clientY;          /* follow the finger: a new direction turns the walk */
+      if (dir !== gs.dir) { gs.dir = dir; Module._web_swipe(dir, 1); }
+    } else if (gs.kind === 2) {
+      var d = pdist();
+      if (gs.d0 > 0 && d / gs.d0 > 1.35) { Module._web_gesture(3, 0, 0, 1); gs.d0 = d; gs.pinched = true; }
+      else if (gs.d0 > 0 && d / gs.d0 < 0.74) { Module._web_gesture(2, 0, 0, 1); gs.d0 = d; gs.pinched = true; }
+      if (Math.abs(d - gs.d0) > 12) gs.moved = true;
+    }
+  });
+  function gestEnd(e) {
+    if (raw[e.pointerId]) { delete raw[e.pointerId]; var q = gameXY(e.clientX, e.clientY); Module._web_ltouch(e.pointerId, q[0], q[1], 2); return; }
+    if (!pts[e.pointerId]) return;
+    delete pts[e.pointerId];
+    if (!gs) return;
+    if (gs.kind === 1 && e.pointerId === gs.id) {
+      clearTimeout(gs.timer);
+      if (gs.long) Module._web_gesture(1, 0, 0, 0);
+      else if (gs.dir >= 0) Module._web_swipe(0, 0);
+      else if (!gs.moved && e.type === 'pointerup' && Date.now() - gs.t0 < 600) { var p = gameXY(gs.x0, gs.y0); Module._web_tap(p[0], p[1]); }
+      gs = null;
+    } else if (gs.kind === 2 && npts() === 0) {
+      if (!gs.pinched && !gs.moved && Date.now() - gs.t0 < 450) { buzz(); Module._web_gesture(0, 0, 0, 1); }
+      gs = null;
+    }
+  }
+  document.addEventListener('pointerup', gestEnd);
+  /* with the keyboard or on-screen buttons, a click on a square in a level walks there too */
+  canvas.addEventListener('click', function (e) {
+    if (gestOn() || !ready) return;
+    var p = gameXY(e.clientX, e.clientY); Module._web_click(p[0], p[1]);
+  });
+  document.addEventListener('pointercancel', gestEnd);
+  document.addEventListener('contextmenu', function (e) { if (gestOn()) e.preventDefault(); });
+
+  /* ---------- sizes: the screen as big as fits (whole-pixel steps where possible), then the pads ---------- */
+  var PAD_W = 56, PAD_H = 14 + 6 + 56 + 6 + 11;     /* the right-hand pad, the bigger one, in art pixels */
+  function layout() {
+    var touch = document.body.classList.contains('touch'), gest = document.body.classList.contains('gest');
+    var vw = window.innerWidth, vh = window.innerHeight, w, art = 3;
+    if (gest) w = Math.min(vw - 16, (vh - 40) * 4 / 3);
+    else if (!touch) w = Math.min(vw - 32, (vh - 200) * 4 / 3);
+    else if (vw > vh) w = Math.min(vw - 2 * 168 - 64, (vh - 24) * 4 / 3);
+    else w = Math.min(vw - 16, (vh - 300) * 4 / 3);
+    w = Math.max(160, w);
+    var dpr = window.devicePixelRatio || 1, dev = w * dpr / 640;
+    if (dev >= 1 && Math.floor(dev) / dev > 0.8) w = Math.floor(dev) * 640 / dpr;   /* crisp, even pixels */
+    canvas.style.width = Math.round(w) + 'px';
+    canvas.style.height = Math.round(w * 3 / 4) + 'px';
+    if (touch) {
+      if (vw > vh) art = Math.min(3, 160 / PAD_W, (vh - 32) / PAD_H);
+      else art = Math.min(3, (vw / 2 - 24) / PAD_W, (vh - w * 3 / 4 - 56) / PAD_H);
+    }
+    sizeControls(art);
+  }
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', function () { setTimeout(layout, 200); });
+  setCtl(touchPref === '1' || touchPref === 'g' || touchPref === '0' ? touchPref : coarse ? 'g' : '0');
+  drawControls();
+
+  /* ---------- audio: Web Audio pulls samples from the game's mixer (48 kHz stereo) ---------- */
+  var actx = null;
+  /* iPhone: Safari treats Web Audio as "ambient" sound, which the ring/silent switch mutes. Ask for
+     "playback" instead (iOS 17+), or on older iOS keep a silent <audio> element looping, which
+     switches the page to playback sound. Both have to happen during a tap. */
+  var silentEl = null;
+  function iosPlayback() {
+    try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch (e) {}
+    if (!/iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) return;
+    if (!silentEl) {
+      var n = 4000, buf = new ArrayBuffer(44 + n), v = new DataView(buf), w = function (o, t) { for (var i = 0; i < 4; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+      v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+      for (var i = 0; i < n; i++) v.setUint8(44 + i, 128);              /* half a second of 8-bit silence */
+      silentEl = document.createElement('audio');
+      silentEl.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      silentEl.loop = true; silentEl.setAttribute('playsinline', ''); silentEl.setAttribute('x-webkit-airplay', 'deny');
+    }
+    var pr = silentEl.play(); if (pr && pr.catch) pr.catch(function () {});
+  }
+  /* Safari only lets sound start or resume from certain gestures, so every tap and click tries again */
+  function wake() {
+    if (!started) return;
+    iosPlayback();
+    if (actx && actx.state !== 'running') actx.resume();
+  }
+  ['touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, wake, { passive: true, capture: true }); });
+
+  function startAudio() {
+    iosPlayback();
+    if (actx) { if (actx.state !== 'running') actx.resume(); return; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { actx = new AC({ sampleRate: 48000, latencyHint: 'interactive' }); } catch (e) { actx = new AC(); }
+    var ratio = 48000 / actx.sampleRate;            /* game frames per output frame */
+    var node = actx.createScriptProcessor(2048, 0, 2);
+    var qL = new Float32Array(16384), qR = new Float32Array(16384), qn = 0, pos = 0;
+    function pull(frames) {                           /* append frames from the game to the queue */
+      while (frames > 0) {
+        var n = Math.min(frames, 4096), p = Module._web_audio_fill(n) >> 1, h = Module.HEAP16;
+        for (var i = 0; i < n; i++) { qL[qn] = h[p + 2 * i] / 32768; qR[qn] = h[p + 2 * i + 1] / 32768; qn++; }
+        frames -= n;
+      }
+    }
+    node.onaudioprocess = function (e) {
+      var L = e.outputBuffer.getChannelData(0), R = e.outputBuffer.getChannelData(1), n = L.length, i;
+      if (!ready) { L.fill(0); R.fill(0); return; }
+      if (ratio === 1) {
+        var p = Module._web_audio_fill(n) >> 1, h = Module.HEAP16;
+        for (i = 0; i < n; i++) { L[i] = h[p + 2 * i] / 32768; R[i] = h[p + 2 * i + 1] / 32768; }
+        return;
+      }
+      var need = Math.floor(pos + (n - 1) * ratio) + 2;   /* linear resampling for other rates */
+      if (qn < need) pull(need - qn);
+      for (i = 0; i < n; i++) {
+        var x = pos + i * ratio, k = Math.floor(x), f = x - k;
+        L[i] = qL[k] + (qL[k + 1] - qL[k]) * f;
+        R[i] = qR[k] + (qR[k + 1] - qR[k]) * f;
+      }
+      var used = Math.floor(pos + n * ratio);
+      pos = pos + n * ratio - used;
+      qL.copyWithin(0, used, qn); qR.copyWithin(0, used, qn); qn -= used;
+    };
+    node.connect(actx.destination);
+    if (actx.state !== 'running') actx.resume();
+  }
+
+  /* keep the exact position when the tab is hidden or closed, and rest the audio */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { releaseAll(); if (ready) Module._web_save(); if (actx) actx.suspend(); if (silentEl) silentEl.pause(); }
+    else if (actx && started) { actx.resume(); if (silentEl) { var pr = silentEl.play(); if (pr && pr.catch) pr.catch(function () {}); } }
+  });
+  window.addEventListener('pagehide', function () { if (ready) Module._web_save(); });
+
+  /* ---------- the game module ---------- */
+  window.Module = {
+    canvas: canvas,
+    print: function (t) { console.log(t); },
+    printErr: function (t) { console.warn(t); },
+    locateFile: function (path) { return path + '?v=__BUILD__'; },
+    stumpedPresent: function (heap, ptr) {
+      image.data.set(heap.subarray(ptr, ptr + 640 * 480 * 4));
+      ctx.putImageData(image, 0, 0);
+    },
+    stumpedLoad: function () {
+      try { var s = localStorage.getItem(SAVE_KEY); if (s) Module.FS.writeFile('save.txt', s); } catch (e) {}
+      try { var b = localStorage.getItem(SAVE_KEY + '-bak'); if (b) Module.FS.writeFile('save.txt.bak', b); } catch (e) {}
+      /* ask the browser to keep the save even when it's short of space */
+      try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+    },
+    /* Options -> Save to a file: download save.txt */
+    stumpedExportSave: function () {
+      try {
+        var t = Module.FS.readFile('save.txt', { encoding: 'utf8' }), d = new Date();
+        var name = 'stumped-save-' + d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + '.txt';
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain' }));
+        a.download = name; document.body.appendChild(a); a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      } catch (e) {}
+    },
+    /* Options -> Load a save file: pick one; the game checks it and asks before replacing anything */
+    stumpedPickSave: function () { saveIn.value = ''; saveIn.click(); },
+    stumpedLoadSets: function () {
+      var all = loadSetStore();
+      try { Module.FS.mkdir('imported'); } catch (e) {}
+      for (var n in all) { try { Module.FS.writeFile('imported/' + n, all[n]); } catch (e) {} }
+    },
+    stumpedImport: function () { fileIn.value = ''; fileIn.click(); },
+    stumpedRemoveSet: function (file) {
+      try { var all = loadSetStore(); delete all[file]; localStorage.setItem(SETS_KEY, JSON.stringify(all)); } catch (e) {}
+      try { Module.FS.unlink('imported/' + file); } catch (e) {}
+      Module._web_sets_reload(0);
+    },
+    stumpedStore: function () {
+      try { localStorage.setItem(SAVE_KEY, Module.FS.readFile('save.txt', { encoding: 'utf8' })); } catch (e) {}
+      try { localStorage.setItem(SAVE_KEY + '-bak', Module.FS.readFile('save.txt.bak', { encoding: 'utf8' })); } catch (e) {}
+    },
+    stumpedPalette: function (a, b, c, d) {
+      var r = document.documentElement.style, hex = function (v) { return '#' + ('00000' + (v >>> 0).toString(16)).slice(-6); };
+      r.setProperty('--c0', hex(a)); r.setProperty('--c1', hex(b)); r.setProperty('--c2', hex(c)); r.setProperty('--c3', hex(d));
+      var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = hex(d);
+      pal = [hex(a), hex(b), hex(c), hex(d)];
+      drawControls();
+    },
+    stumpedButtons: function (mask) { enabled = mask; drawControls(); },
+    onRuntimeInitialized: function () {
+      ready = true;
+      var m = kbdMode >= 0 ? kbdMode : ctlMode === 'g' ? 2 : coarse ? 0 : 1; kbdMode = -1; setMode(m);
+      go.textContent = coarse ? 'Tap to start' : 'Click or press a key';
+      /* a link with a level code after the # adds that level to My levels */
+      setTimeout(openHashCode, 0);
+      window.addEventListener('hashchange', openHashCode);
+    },
+    onAbort: function (what) {
+      go.textContent = 'Something went wrong'; go.style.animation = 'none';
+      document.getElementById('start-hint').textContent = String(what || '');
+      start.classList.remove('hidden');
+    }
+  };
+})();
+</script>
+<script src="stumped.js?v=__BUILD__" async></script>
+</body>
+</html>

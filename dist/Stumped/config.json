@@ -1,0 +1,6 @@
+{
+  "label": "Stumped",
+  "icon": "icon.png",
+  "launch": "launch.sh",
+  "description": "A forest Sokoban"
+}
