@@ -180,8 +180,8 @@ def frame(name, fr):
         px = [[T] * 16] + px[0:13] + px[14:16]
     elif fr == "step":    # hop: stretch up one pixel, feet stay
         px = px[1:13] + [px[12]] + px[13:16]
-    elif fr == "push":    # lean forward
-        px = [[T] + row[:15] for row in px]
+    # push: the same drawing; the game draws it one pixel toward the push (shifting it here would cut
+    # off whatever touches the edge, like the fox's and raccoon's tails). An animal can draw its own.
     return px
 
 

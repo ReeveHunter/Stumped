@@ -10,7 +10,7 @@ soundtrack that your moves play along with.
 ![Squirrels collecting the acorns](docs/squirrels.png) ![Game Boy green](docs/play-dmg.png)
 ![Listen](docs/listen.png)
 
-## Features (v0.67)
+## Features (v0.68)
 
 - **1,093 puzzles** by David W. Skinner: Microban I–IV (gentle, good for kids and beginners) and
   Sasquatch I–XII (harder). Each set is a plain text file in `levels/`.

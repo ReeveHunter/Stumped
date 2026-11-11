@@ -1049,6 +1049,13 @@ static SpriteSet g_spr;          /* in-game sprite set */
 #define POOL 24
 static SpriteSet g_pool[POOL];
 static Uint32 g_pool_used[POOL], g_pool_clock;
+/* pushing: lean one art pixel toward the push (the frog's push frame leans by itself) */
+static int lean_dx(int animal, int frame, int facing_left, int unit)
+{
+    if (frame != FR_PUSH || animal == 1) return 0;
+    return facing_left ? -unit : unit;
+}
+
 static SpriteSet *ui_set(int scale, int animal)
 {
     int lru = 0;
@@ -1744,6 +1751,7 @@ static void draw_level(void)
         } else if (idle > 1200 && ((t / 700) % 2)) frame = FR_TAIL;   /* slow breathing */
     }
     int ax = ox + (int)(fx * ts) / unit * unit, ay = oy + (int)(fy * ts) / unit * unit + dy;
+    ax += lean_dx(g_spr.animal, frame, S.facing, unit);
     blit(g_spr.anim[frame][S.facing], ax, ay);
     if (S.clear) draw_squirrels(ox, oy, ts, unit);
     draw_barn_owl(ox, oy, ts, unit);
@@ -2250,7 +2258,7 @@ static void draw_title(void)
     if (cyc >= 4400) cpos = 2;                  /* a new acorn falls into place */
     int ax = sx + T + ((int)(cpos * T)) / 3 * 3;
     if (acorn) blit(u->tile[cpos >= 3 ? TL_ACORN_GOAL : TL_ACORN], ax, sy + T);
-    blit(u->anim[fr][flip], sx + T + ((int)(pos * T)) / 3 * 3, sy + T + dy);
+    blit(u->anim[fr][flip], sx + T + ((int)(pos * T)) / 3 * 3 + lean_dx(a, fr, flip, 3), sy + T + dy);
     if (cyc >= 2500 && cyc < 3300) {            /* squirrel: down from the hedge, then back up */
         Uint32 r = cyc - 2500;
         float f = r < 400 ? r / 400.0f : 1.0f - (r - 400) / 400.0f;
