@@ -10,7 +10,7 @@ soundtrack that your moves play along with.
 ![Squirrels collecting the acorns](docs/squirrels.png) ![Game Boy green](docs/play-dmg.png)
 ![Listen](docs/listen.png)
 
-## Features (v0.68)
+## Features (v0.67)
 
 - **1,093 puzzles** by David W. Skinner: Microban I–IV (gentle, good for kids and beginners) and
   Sasquatch I–XII (harder). Each set is a plain text file in `levels/`.
@@ -379,8 +379,7 @@ For a long unattended run on a Mac with 16 GB of memory: `caffeinate -ims ./fewe
 Solutions found online can help: save pages with tables of solutions (like the Soko++ solutions list)
 in `data/online/` and run `python3 tools/check_online.py`. It replays them, writes the valid ones to
 `data/online-best.txt`, warns if one beats a count we call proven, and lists the range each unproven
-count must lie in. Those two are other people's solutions, so they stay on your own computer and aren't
-part of the repository (see `.gitignore`). The solver then only looks for solutions better than the best known one, and if
+count must lie in. The solver then only looks for solutions better than the best known one, and if
 there are none, the known one is proven to be the fewest.
 
 `python3 tools/make_fewest.py` (run by `make` when the data changes) replays every solution and writes
