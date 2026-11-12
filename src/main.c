@@ -612,8 +612,10 @@ static void fill_diagonal_gaps(Puzzle *p, int w, int h)
     for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) if (fill[y][x]) cell[y][x] = CL_WALL;
 }
 
+static unsigned g_wall_gen;                 /* bumped whenever a level's walls are (re)built (stumps) */
 static int parse_level(const char *map)
 {
+    g_wall_gen++;
     memset(&P.cell, 0, sizeof P.cell);
     memset(&P.goal, 0, sizeof P.goal);
     memset(&P.box, 0, sizeof P.box);
@@ -664,12 +666,38 @@ static int parse_level(const char *map)
             stack[sp++] = ny * MAXW + nx;
         }
     }
+    /* acorns or spots the player can't reach: if they sit in a pocket closed off by hedges, the whole
+       pocket is grass (a finished corner of the level); if not, just their own squares are */
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            if (!(P.box[y][x] || P.goal[y][x]) || P.cell[y][x] != CL_OUT) continue;
+            int n = 0, open = 0;
+            sp = 0;
+            stack[sp++] = y * MAXW + x;
+            P.cell[y][x] = CL_FLOOR;
+            static int seen[MAXW * MAXH];
+            seen[n++] = y * MAXW + x;
+            while (sp) {
+                int v = stack[--sp], cx = v % MAXW, cy = v / MAXW;
+                if (cx == 0 || cy == 0 || cx == w - 1 || cy == h - 1) open = 1;   /* reaches the edge: not closed */
+                for (int d = 0; d < 4; d++) {
+                    int nx = cx + DX[d], ny = cy + DY[d];
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h || P.cell[ny][nx] != CL_OUT) continue;
+                    P.cell[ny][nx] = CL_FLOOR;
+                    stack[sp++] = ny * MAXW + nx;
+                    seen[n++] = ny * MAXW + nx;
+                }
+            }
+            if (open)                                       /* undo, keeping only the acorns and spots */
+                for (int i = 0; i < n; i++) {
+                    int cx = seen[i] % MAXW, cy = seen[i] / MAXW;
+                    if (!P.box[cy][cx] && !P.goal[cy][cx]) P.cell[cy][cx] = CL_OUT;
+                }
+        }
     fill_diagonal_gaps(&P, w, h);
-    /* acorns/goals sitting outside the reachable area become floor too (keeps odd maps sane) */
     P.nboxes = 0;
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
-            if ((P.box[y][x] || P.goal[y][x]) && P.cell[y][x] == CL_OUT) P.cell[y][x] = CL_FLOOR;
             P.nboxes += P.box[y][x];
         }
     /* dead squares: pull an imaginary acorn backwards from every spot; floor it can't reach is dead */
@@ -1386,10 +1414,38 @@ static int is_floor(const Puzzle *p, int x, int y)
     return x >= 0 && y >= 0 && x < p->w && y < p->h && p->cell[y][x] == CL_FLOOR;
 }
 /* a wall with no wall beside it may be drawn as a tree stump instead of a lone bush */
-static int is_stump(const Puzzle *p, int x, int y, unsigned seed)
+/* At most MAX_STUMPS per level: of the lone walls that would be stumps, the ones with the lowest hash.
+   Worked out once per level (and per Listen clearing), then remembered. */
+#define MAX_STUMPS 5
+static struct { const Puzzle *p; unsigned seed, gen; int used; uint8_t on[MAXH][MAXW]; } g_stumps[3];
+static int stump_candidate(const Puzzle *p, int x, int y, unsigned seed)
 {
     if (is_wall(p, x - 1, y) || is_wall(p, x + 1, y) || is_wall(p, x, y - 1) || is_wall(p, x, y + 1)) return 0;
     return cell_hash(x, y, seed) % 100 < 55;
+}
+static int is_stump(const Puzzle *p, int x, int y, unsigned seed)
+{
+    int k;
+    for (k = 0; k < 3; k++)
+        if (g_stumps[k].used && g_stumps[k].p == p && g_stumps[k].seed == seed && g_stumps[k].gen == g_wall_gen) break;
+    if (k == 3) {                           /* work it out: the MAX_STUMPS lowest hashes */
+        static int rr;
+        k = rr++ % 3;
+        g_stumps[k].p = p; g_stumps[k].seed = seed; g_stumps[k].gen = g_wall_gen; g_stumps[k].used = 1;
+        memset(g_stumps[k].on, 0, sizeof g_stumps[k].on);
+        for (int n = 0; n < MAX_STUMPS; n++) {
+            int bx = -1, by = -1; unsigned best = 0;
+            for (int yy = 0; yy < p->h; yy++)
+                for (int xx = 0; xx < p->w; xx++) {
+                    if (p->cell[yy][xx] != CL_WALL || g_stumps[k].on[yy][xx] || !stump_candidate(p, xx, yy, seed)) continue;
+                    unsigned h = cell_hash(xx, yy, seed);
+                    if (bx < 0 || h < best) { best = h; bx = xx; by = yy; }
+                }
+            if (bx < 0) break;
+            g_stumps[k].on[by][bx] = 1;
+        }
+    }
+    return x >= 0 && y >= 0 && x < MAXW && y < MAXH && g_stumps[k].on[y][x];
 }
 
 /* Outside the clearing: darkness with dark grass tufts that thin out with distance from the level.
@@ -2160,6 +2216,7 @@ static void footer(const char *hint)
 /* a little hand-made clearing for the title and options screens */
 static void build_scene(Puzzle *p, const char *const *rows, int h)
 {
+    g_wall_gen++;
     memset(p, 0, sizeof *p);
     p->h = h;
     for (int y = 0; y < h; y++) {
@@ -2966,6 +3023,7 @@ static void listen_new_room(void)
         if (g_count() >= 28) break;
     }
     memset(p, 0, sizeof *p);
+    g_wall_gen++;
     p->w = LS_W; p->h = LS_H;
     L.seed = (unsigned)rand();
     for (int y = 0; y < LS_H; y++) for (int x = 0; x < LS_W; x++) if (G[y][x]) p->cell[y][x] = CL_FLOOR;
