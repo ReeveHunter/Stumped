@@ -911,6 +911,38 @@ static int text(int x, int y, const char *s, int sc, Uint32 c)
 static int text_w(const char *s, int sc) { return (int)strlen(s) * 8 * sc; }
 static void text_c(int cx, int y, const char *s, int sc, Uint32 c) { text(cx - text_w(s, sc) / 2, y, s, sc, c); }
 static void text_r(int rx, int y, const char *s, int sc, Uint32 c) { text(rx - text_w(s, sc), y, s, sc, c); }
+/* Text in a limited width (scale 2). Too long: cut short with "...", or, for the selected row, a
+   slow back-and-forth scroll so the whole name can be read. */
+static int g_marquee;                       /* something on screen is scrolling: draw often */
+static const char *fit_str(const char *s, int maxw)
+{
+    static char b[4][128]; static int k;
+    if (text_w(s, 2) <= maxw) return s;
+    int n = maxw / 16 - 3;
+    if (n < 1) n = 1;
+    char *o = b[k++ % 4];
+    snprintf(o, 128, "%.*s...", n, s);
+    return o;
+}
+static void text_fit(int x, int y, const char *s, int maxw, Uint32 c, int scroll)
+{
+    int w = text_w(s, 2);
+    if (w <= maxw) { text(x, y, s, 2, c); return; }
+    if (!scroll) { text(x, y, fit_str(s, maxw), 2, c); return; }
+    int over = w - maxw, run = over * 1000 / 40, hold = 1200, cyc = 2 * hold + 2 * run;
+    static const char *last; static Uint32 since;   /* start from the beginning when the selection moves */
+    if (s != last) { last = s; since = now_ms(); }
+    int t = (int)((now_ms() - since) % (Uint32)cyc), off;
+    if (t < hold) off = 0;
+    else if (t < hold + run) off = (t - hold) * over / run;
+    else if (t < 2 * hold + run) off = over;
+    else off = over - (t - 2 * hold - run) * over / run;
+    off = off / 2 * 2;                      /* whole art pixels */
+    set_clip(x, y - 2, maxw, 20);
+    text(x - off, y, s, 2, c);
+    no_clip();
+    g_marquee = 1;
+}
 /* touch: a button drawn like UNDO / REDO, and what it does */
 static void tbtn(int x, int y, int w, int h, const char *label, int kind, int *sel, int val)
 {
@@ -2210,11 +2242,9 @@ static void header(const char *title, const char *right)
 {
     rect(0, 0, SCREEN_W, 32, BG3);
     rect(0, 28, SCREEN_W, 4, BG2);
-    if (g_kbd == 2) {                     /* touch: a BACK button where the title starts */
-        tbtn(8, 4, 72, 20, "BACK", TAP_BACK, NULL, 0);
-        text(96, 8, title, 2, BG0);
-    } else
-    text(16, 8, title, 2, BG0);
+    int tx = g_kbd == 2 ? 96 : 16, room = (right ? SCREEN_W - 16 - text_w(right, 2) - 16 : SCREEN_W - 16) - tx;
+    if (g_kbd == 2) tbtn(8, 4, 72, 20, "BACK", TAP_BACK, NULL, 0);   /* touch: a BACK button where the title starts */
+    text_fit(tx, 8, title, room, BG0, 0);
     if (right) text_r(SCREEN_W - 16, 8, right, 2, BG1);
 }
 
@@ -2369,10 +2399,10 @@ static void draw_sets(void)
         tap_add(0, y - 8, SCREEN_W, 32, TAP_PICK, &S.sets_sel, s);
         if (s == S.sets_sel) cursor(16, y + 1, BG3);
         if (s >= g_nsets) { text(32, y, "+ Add a level set", 2, BG2); continue; }
-        text(32, y, g_sets[s].name, 2, BG3);
         int done = set_solved(s), n = g_sets[s].n;
         char b[32];
         snprintf(b, sizeof b, "%d/%d", done, n);
+        text_fit(32, y, g_sets[s].name, 400 - text_w(b, 2) - 16 - 32, BG3, s == S.sets_sel);
         text_r(400, y, b, 2, BG3);
         int bx = 432, bw = g_kbd == 2 && set_has_menu(s) ? 120 : 176;
         if (g_kbd == 2 && set_has_menu(s)) {            /* touch: its menu */
@@ -2440,10 +2470,10 @@ static void draw_levels(void)
     }
     char b[96];
     snprintf(b, sizeof b, "%d/%d", set_solved(S.sets_sel), s->n);
-    header(s->name, b);
+    const char *ml = fav ? "REMOVE" : "MENU";
+    int mw = text_w(ml, 2) + 16, mx = SCREEN_W - 16 - text_w(b, 2) - 16 - mw;
+    header(g_kbd == 2 ? fit_str(s->name, mx - 16 - 96) : s->name, b);     /* touch: room for MENU too */
     if (g_kbd == 2) {                                   /* touch: the menu (Favorites: take it out) */
-        const char *ml = fav ? "REMOVE" : "MENU";
-        int mw = text_w(ml, 2) + 16, mx = SCREEN_W - 16 - text_w(b, 2) - 16 - mw;
         tbtn(mx, 4, mw, 20, ml, TAP_BTN, NULL, BTN_SELECT);
     }
     int row = S.lv_sel / LV_COLS;
@@ -3798,6 +3828,7 @@ static void draw_screen(void)
 {
     fav_sync();
     g_ntaps = 0;
+    g_marquee = 0;
     switch (S.screen) {
     case SC_TITLE: draw_title(); break;
     case SC_SETS: draw_sets(); break;
@@ -4203,6 +4234,7 @@ static void frame_update(Uint32 t)
     } else if (S.screen == SC_TITLE || S.screen == SC_LISTEN) interval = S.screen == SC_LISTEN ? 33 : 50;
     else if (S.screen == SC_EDIT || S.screen == SC_CODE) interval = Ed.checking || (S.screen == SC_EDIT && t < Ed.shake_until) ? 33 : 100;
     if (S.screen == SC_GAME && (S.owl_state == OWL_ARRIVING || S.owl_state == OWL_LEAVING)) interval = 33;
+    if (g_marquee) interval = 33;           /* a long name is scrolling */
     if (S.dirty || t - g_last_draw >= interval) {
         draw_screen();
         present();
