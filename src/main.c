@@ -575,7 +575,9 @@ typedef struct {
     int sx, sy;                         /* start position */
     uint8_t sbox[MAXH][MAXW];           /* start acorns */
     uint8_t dead[MAXH][MAXW];           /* floor where an acorn can never reach a spot again */
-    int nboxes;
+    int nboxes;                         /* acorns in play (not counting ignored ones) */
+    uint8_t ignored[MAXH][MAXW];        /* acorns off their spots that the animal can never reach */
+    int nignored;
     char *hist; int hlen, hcap, hpos;   /* lrud = step, LRUD = push; hpos = current point (redo beyond) */
     int pushes;
 } Puzzle;
@@ -619,6 +621,8 @@ static int parse_level(const char *map)
     memset(&P.cell, 0, sizeof P.cell);
     memset(&P.goal, 0, sizeof P.goal);
     memset(&P.box, 0, sizeof P.box);
+    memset(&P.ignored, 0, sizeof P.ignored);
+    P.nignored = 0;
     int y = 0, x = 0, w = 0, minx = MAXW;
     P.px = P.py = -1;
     char rows[MAXH][MAXW + 1];
@@ -666,8 +670,14 @@ static int parse_level(const char *map)
             stack[sp++] = ny * MAXW + nx;
         }
     }
+    /* an acorn off its spot that the animal can't reach could never be pushed home: leave it out of
+       the count, so the level is won when every acorn in play is on a spot */
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            if (P.box[y][x] && !P.goal[y][x] && P.cell[y][x] == CL_OUT) { P.ignored[y][x] = 1; P.nignored++; }
     /* acorns or spots the player can't reach: if they sit in a pocket closed off by hedges, the whole
-       pocket is grass (a finished corner of the level); if not, just their own squares are */
+       pocket is grass (a finished corner of the level); if they're out in the open, they stay on the
+       forest floor (the open area is marked 3 while this runs, so it's only searched once) */
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
             if (!(P.box[y][x] || P.goal[y][x]) || P.cell[y][x] != CL_OUT) continue;
@@ -688,17 +698,17 @@ static int parse_level(const char *map)
                     seen[n++] = ny * MAXW + nx;
                 }
             }
-            if (open)                                       /* undo, keeping only the acorns and spots */
-                for (int i = 0; i < n; i++) {
-                    int cx = seen[i] % MAXW, cy = seen[i] / MAXW;
-                    if (!P.box[cy][cx] && !P.goal[cy][cx]) P.cell[cy][cx] = CL_OUT;
-                }
+            if (open)
+                for (int i = 0; i < n; i++) P.cell[seen[i] / MAXW][seen[i] % MAXW] = 3;
         }
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            if (P.cell[y][x] == 3) P.cell[y][x] = CL_OUT;
     fill_diagonal_gaps(&P, w, h);
     P.nboxes = 0;
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
-            P.nboxes += P.box[y][x];
+            P.nboxes += P.box[y][x] && !P.ignored[y][x];
         }
     /* dead squares: pull an imaginary acorn backwards from every spot; floor it can't reach is dead */
     {
@@ -733,7 +743,7 @@ static int solved(void)
 {
     for (int y = 0; y < P.h; y++)
         for (int x = 0; x < P.w; x++)
-            if (P.box[y][x] && !P.goal[y][x]) return 0;
+            if (P.box[y][x] && !P.goal[y][x] && !P.ignored[y][x]) return 0;
     return 1;
 }
 
@@ -1228,6 +1238,7 @@ static void start_level(int set, int level, const char *resume_moves)
     remember_progress();
     save_all();
     report_progress();
+    if (P.nignored) { toast("Acorns out of reach don't count"); S.toast_until = now_ms() + 3500; }
     S.dirty = 1;
 }
 
@@ -1504,6 +1515,7 @@ static void draw_world(const Puzzle *p, SpriteSet *u, int ox, int oy, int vx, in
                 continue;
             }
             draw_outside(p, x, y, X, Y, u->scale);
+            if (c == CL_OUT && in && p->goal[y][x]) blit(u->tile[TL_GOAL], X, Y);   /* a spot out in the forest */
             if (c != CL_WALL) continue;
             if (is_stump(p, x, y, seed)) {
                 int ground = is_floor(p, x - 1, y) || is_floor(p, x + 1, y) || is_floor(p, x, y - 1) || is_floor(p, x, y + 1);
@@ -1858,10 +1870,8 @@ static void draw_map(void)
         for (int x = 0; x < P.w; x++) {
             int X = ox + x * t, Y = oy + y * t, c = P.cell[y][x];
             if (c == CL_WALL) rect(X, Y, t, t, BG2);
-            else if (c == CL_FLOOR) {
-                rect(X, Y, t, t, BG0);
-                if (P.goal[y][x]) rect(X + t / 2 - t / 6, Y + t / 2 - t / 6, (t / 3) / 2 * 2 + 2, (t / 3) / 2 * 2 + 2, BG2);
-            }
+            else if (c == CL_FLOOR) rect(X, Y, t, t, BG0);
+            if (c != CL_WALL && P.goal[y][x]) rect(X + t / 2 - t / 6, Y + t / 2 - t / 6, (t / 3) / 2 * 2 + 2, (t / 3) / 2 * 2 + 2, BG2);
             if (P.box[y][x]) { rect(X + 2, Y + 2, t - 4, t - 4, BG3); if (t >= 8) rect(X + 4, Y + 4, t - 8, t - 8, P.goal[y][x] ? BG0 : BG1); }
             if (x == P.px && y == P.py && (now / 250) % 2) rect(X, Y, t, t, BG3);
         }
@@ -2404,8 +2414,8 @@ static void draw_thumbnail(const char *map, int x, int y, int w, int h)
         for (int xx = 0; xx < P.w; xx++) {
             int c = P.cell[yy][xx], X = ox + xx * t, Y = oy + yy * t;
             if (c == CL_WALL) rect(X, Y, t, t, BG2);
-            else if (c == CL_FLOOR && P.goal[yy][xx] && t >= 6) rect(X + t / 2 - 2, Y + t / 2 - 2, 4, 4, BG2);
-            else if (c == CL_FLOOR && P.goal[yy][xx]) rect(X, Y, t, t, BG1);
+            else if (c != CL_WALL && P.goal[yy][xx] && t >= 6) rect(X + t / 2 - 2, Y + t / 2 - 2, 4, 4, BG2);
+            else if (c != CL_WALL && P.goal[yy][xx]) rect(X, Y, t, t, BG1);
             if (P.box[yy][xx]) { rect(X, Y, t, t, BG3); if (t >= 6) rect(X + 2, Y + 2, t - 4, t - 4, P.goal[yy][xx] ? BG0 : BG1); }
             if (xx == P.px && yy == P.py) { rect(X, Y, t, t, BG3); if (t >= 6) rect(X + 2, Y + 2, t - 4, t - 4, BG2); }
         }
