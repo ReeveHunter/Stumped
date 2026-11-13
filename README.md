@@ -9,7 +9,8 @@ A Game Boy–style Sokoban set in a forest at night. Push the acorns onto their 
 
 ## Features
 
-- **1,093 puzzles** by David W. Skinner, from gentle (Microban) to hard (Sasquatch)
+- **1,093 puzzles** by David W. Skinner, from gentle (Microban) to hard (Sasquatch), and 100 more of
+  our own in **Wild Wood**
 - **A level maker**, with codes (and QR codes) to share your levels
 - **Progress codes** to carry your solved levels between devices
 - Plays on the Miyoo and in any browser, with buttons, a keyboard, touch or a game controller
@@ -41,6 +42,7 @@ See [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Credits
 
+- **Wild Wood**: generated for Stumped and chosen by hand; under the same licence as the game.
 - **Puzzles: David W. Skinner** (Grandview, Washington, USA): Microban, Microban II–IV, Sasquatch,
   Sasquatch II–XII (Sasquatch as revised in 2010). *"These sets may be freely distributed provided they
   remain properly credited."* The text files come from the
